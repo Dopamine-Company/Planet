@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66d3ebe8c1a722b4298a3855fba17a8e, type: 3}
+  m_Name: EcoSimConfig
+  m_EditorClassIdentifier: EcoSim::EcoSim.Core.SimulationConfig
+  width: 256
+  height: 256
+  rainfall: 0.01
+  waterCost: 0.3
+  growthRate: 0.15
+  soilCost: 0.2
+  assimHerb: 0.1
+  deathHerb: 0.02
+  grazeRate: 0.2
+  assimPred: 0.08
+  deathPred: 0.03
+  predationRate: 0.15
+  returnRate: 0.5
+  diffusion: 0.1
+  realSecondsPerTick: 0.05
+  maxCatchupTicks: 30

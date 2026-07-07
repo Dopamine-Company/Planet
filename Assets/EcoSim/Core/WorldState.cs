@@ -16,6 +16,7 @@ namespace EcoSim.Core
         public float[] Herb;
         public float[] Pred;
         public bool[]  Barrier;
+        public float[] Elevation; // 고정 지형 높이 0~1 (물 흐름용, 세계 생성 시 1회)
 
         public WorldState(int width, int height)
         {
@@ -24,6 +25,7 @@ namespace EcoSim.Core
             Soil = new float[n];  Water = new float[n];
             Plant = new float[n]; Herb = new float[n]; Pred = new float[n];
             Barrier = new bool[n];
+            Elevation = new float[n];
         }
 
         public int Index(int x, int y) => y * Width + x;

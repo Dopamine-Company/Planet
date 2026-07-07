@@ -170,7 +170,68 @@ namespace EcoSim.Tests
             Assert.AreEqual(1, w.Wrap(Size + 1, Size));
         }
 
-        // ── 6. 토러스 wrap 확산: 경계 셀의 확산이 반대편 끝으로 이어진다 ──
+        // ── 7. 계절: 여름 성장 > 겨울 성장 (연 주기 흥망의 스위치) ──
+        [Test]
+        public void Season_SummerGrowsMoreThanWinter()
+        {
+            var cfg = DefaultConfig();
+            cfg.seasonEnabled = true;
+            cfg.latitudeEnabled = false;   // 계절만 격리 검증
+            cfg.waterFlowEnabled = false;
+            cfg.yearLength = 40;
+
+            float summer = GrowOverSeasonQuarter(cfg, startAtPeak: true);   // 한여름 근처
+            float winter = GrowOverSeasonQuarter(cfg, startAtPeak: false);  // 한겨울 근처
+
+            Assert.Greater(summer, winter,
+                "여름 구간 식물 증가가 겨울 구간보다 커야 한다(계절 변조).");
+        }
+
+        // 지정한 계절 위상에서 짧게 돌려 식물 총량 증가분 측정.
+        private static float GrowOverSeasonQuarter(SimulationConfig cfg, bool startAtPeak)
+        {
+            var w = NewWorld(0.9f, 0.6f);
+            SeedAll(w, w.Plant, 0.2f);
+            SeedAll(w, w.Herb, 0.02f);
+            var sim = new SimulationTick(cfg, w);
+            // 여름 피크: sin=+1 → phase=0.25 → day=yearLength/4. 겨울: phase=0.75.
+            sim.SetDay(startAtPeak ? cfg.yearLength / 4 - 5 : (3 * cfg.yearLength) / 4 - 5);
+
+            float before = Sum(w.Plant);
+            for (int t = 0; t < 10; t++) sim.Step(w);
+            return Sum(w.Plant) - before;
+        }
+
+        // ── 8. 물 흐름: 물이 고지대→저지대로 이동해 저지대에 고인다 ──
+        [Test]
+        public void WaterFlow_AccumulatesInLowlands()
+        {
+            var cfg = DefaultConfig();
+            cfg.seasonEnabled = false;
+            cfg.latitudeEnabled = false;
+            cfg.waterFlowEnabled = true;
+            cfg.flowRate = 0.3f;
+            cfg.rainfall = 0f; // 강우 제거 → 순수 흐름만
+
+            var w = NewWorld(0.5f, 0.5f);
+            // 왼쪽 절반 높음, 오른쪽 절반 낮음 (경사)
+            for (int y = 0; y < Size; y++)
+                for (int x = 0; x < Size; x++)
+                    w.Elevation[w.Index(x, y)] = 1f - x / (float)(Size - 1);
+
+            var sim = new SimulationTick(cfg, w);
+            for (int t = 0; t < 50; t++) sim.Step(w);
+
+            float highWater = 0f, lowWater = 0f;
+            for (int y = 0; y < Size; y++)
+            {
+                highWater += w.Water[w.Index(0, y)];         // 최고지대 열
+                lowWater  += w.Water[w.Index(Size - 1, y)];  // 최저지대 열
+            }
+            Assert.Greater(lowWater, highWater, "저지대에 물이 더 고여야 한다.");
+        }
+
+        // ── 9. 토러스 wrap 확산: 경계 셀의 확산이 반대편 끝으로 이어진다 ──
         [Test]
         public void TorusWrap_DiffusionCrossesBoundary()
         {

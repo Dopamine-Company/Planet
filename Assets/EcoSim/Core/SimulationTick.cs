@@ -1,32 +1,51 @@
-// EcoSim.Core / SimulationTick — Phase 0 시뮬레이션 틱 파이프라인.
+// EcoSim.Core / SimulationTick — Phase 0 시뮬레이션 틱 파이프라인 + Phase 2 환경(계절·위도·물흐름).
 namespace EcoSim.Core
 {
     /// <summary>
     /// 한 틱(=게임 1일) 전진. 더블 버퍼로 read→write 하여 순차 갱신 편향을 막는다.
-    /// 순서: LocalRules(셀 내부) → Diffuse(이웃 참조) → Clamp01.
+    /// 순서: LocalRules(셀 내부, 계절·위도 변조) → WaterFlow(고도 방향 흐름) → Diffuse → Clamp01.
     ///
-    /// 버퍼 흐름 주의(설계 문서 경고): LocalRules의 출력을 Diffuse의 입력으로 넘긴다.
-    /// - read → LocalRules → _buf (셀 내부 결과)
-    /// - _buf → Diffuse → read (확산 결과를 read에 되씀)
-    /// LocalRules가 read를 모두 소비한 뒤에 Diffuse가 read를 목적지로 덮어쓰므로 충돌이 없다.
-    /// 결과적으로 Step 종료 시 read가 최신 상태를 담는다(별도 swap 불필요).
+    /// 버퍼 흐름: read → LocalRules → _buf → (WaterFlow로 _buf.Water 갱신) → Diffuse → read.
+    /// 결과적으로 Step 종료 시 read가 최신 상태를 담는다.
+    ///
+    /// 계절/위도/물흐름은 config 플래그로 개별 on/off. 끄면 Phase 0 동작과 동일.
     /// </summary>
     public sealed class SimulationTick
     {
         private readonly SimulationConfig _cfg;
-        private readonly WorldState _buf; // 재사용 스크래치 버퍼
+        private readonly WorldState _buf;       // 재사용 스크래치 버퍼
+        private readonly float[] _waterScratch; // 물 흐름 계산용
+
+        private int _day;
 
         public SimulationTick(SimulationConfig cfg, WorldState template)
         {
             _cfg = cfg;
             _buf = new WorldState(template.Width, template.Height);
+            _waterScratch = new float[template.Width * template.Height];
+        }
+
+        public int Day => _day;
+        public void SetDay(int day) => _day = day;
+
+        /// 현재 계절값 -1(한겨울)~+1(한여름). 계절 꺼져 있으면 0.
+        public float Season()
+        {
+            if (!_cfg.seasonEnabled || _cfg.yearLength <= 0) return 0f;
+            float phase = (_day % _cfg.yearLength) / (float)_cfg.yearLength;
+            return (float)System.Math.Sin(phase * 2.0 * System.Math.PI);
         }
 
         public void Step(WorldState read)
         {
-            CopyStatic(read, _buf);   // barrier 스냅샷 (Diffuse 이웃 판정용)
-            LocalRules(read, _buf);   // read → _buf : 성장/초식/포식/환원
-            Diffuse(_buf, read);      // _buf → read : 확산 (LocalRules 출력을 입력으로)
+            _day++;
+            float season = Season();
+
+            CopyStatic(read, _buf);       // barrier 스냅샷
+            LocalRules(read, _buf, season);
+            if (_cfg.waterFlowEnabled)
+                WaterFlow(_buf.Water, read); // 고도 낮은 이웃으로 물 이동
+            Diffuse(_buf, read);
             Clamp01(read);
         }
 
@@ -35,53 +54,110 @@ namespace EcoSim.Core
             System.Array.Copy(r.Barrier, w.Barrier, r.Barrier.Length);
         }
 
-        // --- 셀 내부 규칙 (이웃 불필요) ---
-        private void LocalRules(WorldState r, WorldState w)
+        // --- 셀 내부 규칙 (계절·위도 변조) ---
+        private void LocalRules(WorldState r, WorldState w, float season)
         {
-            int n = r.Width * r.Height;
-            for (int i = 0; i < n; i++)
+            float rainNow = _cfg.rainfall   * (1f + season * _cfg.seasonRainAmp);
+            float growSeason = _cfg.growthRate * (1f + season * _cfg.seasonGrowAmp);
+            if (rainNow < 0f) rainNow = 0f;
+            if (growSeason < 0f) growSeason = 0f;
+
+            for (int y = 0; y < r.Height; y++)
             {
-                float soil = r.Soil[i],  water = r.Water[i];
-                float pl = r.Plant[i], hb = r.Herb[i], pr = r.Pred[i];
+                // 위도: 토러스 y-wrap 유지 위해 코사인(중앙=따뜻, 위아래 끝=추움).
+                float tempFactor = 1f;
+                if (_cfg.latitudeEnabled)
+                {
+                    float lat = (float)System.Math.Cos((y / (double)r.Height) * 2.0 * System.Math.PI);
+                    float t = 0.5f + 0.5f * lat;                 // 0~1
+                    tempFactor = 1f - _cfg.latitudeAmp * (1f - t); // amp만큼 추운 곳 성장 억제
+                }
+                float growNow = growSeason * tempFactor;
 
-                // 물 순환 (전역 상수 강우)
-                water += _cfg.rainfall;
+                int rowBase = y * r.Width;
+                for (int x = 0; x < r.Width; x++)
+                {
+                    int i = rowBase + x;
+                    float soil = r.Soil[i],  water = r.Water[i];
+                    float pl = r.Plant[i], hb = r.Herb[i], pr = r.Pred[i];
 
-                // 식물 성장 (자원 제약 로지스틱)
-                float grow = _cfg.growthRate * pl * (soil * water) * (1f - pl);
-                pl    += grow;
-                soil  -= grow * _cfg.soilCost;
-                water -= grow * _cfg.waterCost;
+                    water += rainNow;
 
-                // 초식 (식물 → 초식)
-                float herbBorn = _cfg.assimHerb * pl * hb;
-                float herbDie  = _cfg.deathHerb * hb;
-                hb += herbBorn - herbDie;
-                pl -= _cfg.grazeRate * pl * hb;
+                    float grow = growNow * pl * (soil * water) * (1f - pl);
+                    pl    += grow;
+                    soil  -= grow * _cfg.soilCost;
+                    water -= grow * _cfg.waterCost;
 
-                // 포식 (초식 → 포식자)
-                float predBorn = _cfg.assimPred * hb * pr;
-                float predDie  = _cfg.deathPred * pr;
-                pr += predBorn - predDie;
-                hb -= _cfg.predationRate * hb * pr;
+                    float herbBorn = _cfg.assimHerb * pl * hb;
+                    float herbDie  = _cfg.deathHerb * hb;
+                    hb += herbBorn - herbDie;
+                    pl -= _cfg.grazeRate * pl * hb;
 
-                // 사망 환원 → 토양 (영양분 순환)
-                soil += (herbDie + predDie) * _cfg.returnRate;
+                    float predBorn = _cfg.assimPred * hb * pr;
+                    float predDie  = _cfg.deathPred * pr;
+                    pr += predBorn - predDie;
+                    hb -= _cfg.predationRate * hb * pr;
 
-                w.Soil[i]  = soil;  w.Water[i] = water;
-                w.Plant[i] = pl;    w.Herb[i]  = hb;   w.Pred[i] = pr;
+                    soil += (herbDie + predDie) * _cfg.returnRate;
+
+                    w.Soil[i]  = soil;  w.Water[i] = water;
+                    w.Plant[i] = pl;    w.Herb[i]  = hb;   w.Pred[i] = pr;
+                }
             }
         }
 
+        // --- 물 흐름: 각 셀 물 일부를 가장 낮은(고도) 이웃 하나로 이동. 저지대에 강·호수 형성 ---
+        private void WaterFlow(float[] water, WorldState s)
+        {
+            // water(dst)는 현재값에서 시작, flow 양은 스냅샷에서 읽어 델타 누적.
+            System.Array.Copy(water, _waterScratch, water.Length);
+
+            for (int y = 0; y < s.Height; y++)
+            for (int x = 0; x < s.Width; x++)
+            {
+                int i = s.Index(x, y);
+                if (s.Barrier[i]) continue;
+
+                int lowest = LowestNeighbor(s, x, y);
+                if (lowest < 0) continue; // 더 낮은 이웃 없음(웅덩이)
+
+                float flow = _waterScratch[i] * _cfg.flowRate;
+                water[i] -= flow;
+                water[lowest] += flow;
+            }
+        }
+
+        // 4이웃(토러스) 중 barrier 아니고 자기보다 낮은 최저 고도 셀. 없으면 -1.
+        private int LowestNeighbor(WorldState s, int x, int y)
+        {
+            int self = s.Index(x, y);
+            float selfE = s.Elevation[self];
+            int best = -1;
+            float bestE = selfE;
+
+            Consider(s, x + 1, y, ref best, ref bestE);
+            Consider(s, x - 1, y, ref best, ref bestE);
+            Consider(s, x, y + 1, ref best, ref bestE);
+            Consider(s, x, y - 1, ref best, ref bestE);
+            return best;
+        }
+
+        private static void Consider(WorldState s, int nx, int ny, ref int best, ref float bestE)
+        {
+            nx = s.Wrap(nx, s.Width);
+            ny = s.Wrap(ny, s.Height);
+            int ni = s.Index(nx, ny);
+            if (s.Barrier[ni]) return;
+            if (s.Elevation[ni] < bestE) { bestE = s.Elevation[ni]; best = ni; }
+        }
+
         // --- 확산 (토러스 라플라시안, barrier 차단) ---
-        // src(=_buf, LocalRules 출력)을 읽어 dst(=read)에 쓴다.
         private void Diffuse(WorldState src, WorldState dst)
         {
             DiffuseField(src.Plant, dst.Plant, src);
             DiffuseField(src.Herb,  dst.Herb,  src);
             DiffuseField(src.Pred,  dst.Pred,  src);
 
-            // soil/water는 Phase 0에서 확산 생략 → src 값을 그대로 이월.
             System.Array.Copy(src.Soil,  dst.Soil,  src.Soil.Length);
             System.Array.Copy(src.Water, dst.Water, src.Water.Length);
         }
@@ -95,7 +171,6 @@ namespace EcoSim.Core
                 int i = s.Index(x, y);
                 if (s.Barrier[i]) { dst[i] = src[i]; continue; }
 
-                // 토러스 4이웃. barrier 이웃은 자기 값으로 대체 → 흐름 차단.
                 float sum = 0f; int cnt = 0;
                 AddNeighbor(ref sum, ref cnt, src, s, x + 1, y, src[i]);
                 AddNeighbor(ref sum, ref cnt, src, s, x - 1, y, src[i]);

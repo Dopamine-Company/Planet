@@ -35,6 +35,20 @@ namespace EcoSim.Core
         public float returnRate = 0.5f;   // 사망→토양 환원 비율
         public float diffusion  = 0.10f;  // 확산 계수 D (0~0.25 권장)
 
+        [Header("Environment · Season (Phase 2)")]
+        public bool  seasonEnabled   = true;
+        public int   yearLength      = 120;   // 1년 = N틱(=N일)
+        public float seasonRainAmp   = 0.8f;  // 강우 계절 변조 폭
+        public float seasonGrowAmp   = 0.6f;  // 성장 계절 변조 폭
+
+        [Header("Environment · Latitude (Phase 2)")]
+        public bool  latitudeEnabled = true;
+        public float latitudeAmp     = 0.7f;  // 위도 성장 변조 폭(0=균일, 1=극단)
+
+        [Header("Environment · Water Flow (Phase 2)")]
+        public bool  waterFlowEnabled = true;
+        public float flowRate         = 0.25f; // 물이 최저 이웃으로 흐르는 비율
+
         [Header("Time")]
         public float realSecondsPerTick = 2f;   // 실시간 2초 = 게임 1일
         public int   maxCatchupTicks    = 30;   // 오프라인 최대 30일치

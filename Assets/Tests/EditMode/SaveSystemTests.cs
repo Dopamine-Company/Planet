@@ -30,27 +30,30 @@ namespace EcoSim.Tests
                 w.Plant[i] = (float)rng.NextDouble();
                 w.Herb[i] = (float)rng.NextDouble();
                 w.Pred[i] = (float)rng.NextDouble();
+                w.Elevation[i] = (float)rng.NextDouble();
                 w.Barrier[i] = rng.Next(2) == 1;
             }
             var stamp = new DateTime(2026, 7, 7, 3, 0, 0, DateTimeKind.Utc);
 
-            SaveSystem.Save(w, stamp, _path);
-            Assert.IsTrue(SaveSystem.TryLoad(_path, out WorldState r, out DateTime loadedStamp));
+            SaveSystem.Save(w, stamp, day: 137, _path);
+            Assert.IsTrue(SaveSystem.TryLoad(_path, out WorldState r, out DateTime loadedStamp, out int loadedDay));
 
             Assert.AreEqual(stamp, loadedStamp);
+            Assert.AreEqual(137, loadedDay);
             Assert.AreEqual(w.Width, r.Width);
             CollectionAssert.AreEqual(w.Soil, r.Soil);
             CollectionAssert.AreEqual(w.Water, r.Water);
             CollectionAssert.AreEqual(w.Plant, r.Plant);
             CollectionAssert.AreEqual(w.Herb, r.Herb);
             CollectionAssert.AreEqual(w.Pred, r.Pred);
+            CollectionAssert.AreEqual(w.Elevation, r.Elevation);
             CollectionAssert.AreEqual(w.Barrier, r.Barrier);
         }
 
         [Test]
         public void TryLoad_MissingFile_ReturnsFalse()
         {
-            Assert.IsFalse(SaveSystem.TryLoad(_path + ".nope", out _, out _));
+            Assert.IsFalse(SaveSystem.TryLoad(_path + ".nope", out _, out _, out _));
         }
 
         [Test]

@@ -111,8 +111,19 @@ namespace EcoSim.View
             int sp = _root.Scheduler.SpeedMultiplier;
             string speed = sp == 0 ? SpeedLabel[0] : sp == 1 ? SpeedLabel[1] : sp == 4 ? SpeedLabel[2] : SpeedLabel[3];
 
-            return $"{cell}\n뷰: {obs.Mode}   배속: {speed}   {_root.Scheduler.TotalTicks}일차\n{track}\n" +
+            return $"{cell}\n뷰: {obs.Mode}   배속: {speed}   {SeasonInfo()}\n{track}\n" +
                    "[Tab]뷰 [Space]정지 [5/6/7]배속 [1~4]도구 [우클릭]추적";
+        }
+
+        private string SeasonInfo()
+        {
+            var sim = _root.Sim;
+            if (sim == null) return $"{_root.Scheduler.TotalTicks}일차";
+            float s = sim.Season();
+            string name = s > 0.5f ? "한여름" : s > 0.05f ? "봄/가을" :
+                          s < -0.5f ? "한겨울" : s < -0.05f ? "늦가을/초봄" : "환절기";
+            int year = sim.Day / Mathf.Max(1, _root.ConfigYearLength) + 1;
+            return $"{sim.Day}일차 ({year}년째, {name})";
         }
 
         private void OnTicks(int advanced)

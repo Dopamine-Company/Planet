@@ -3,7 +3,7 @@ using EcoSim.Core;
 
 namespace EcoSim.View
 {
-    public enum ViewMode { Combined, Plant, Herb, Pred, Soil, Water }
+    public enum ViewMode { Combined, Plant, Herb, Pred, Soil, Water, Elevation }
 
     /// <summary>
     /// 세계 = Texture2D 한 장. 픽셀 = 셀. 밀도 → 색.
@@ -36,7 +36,7 @@ namespace EcoSim.View
             }
         }
 
-        public void CycleMode() => Mode = (ViewMode)(((int)_mode + 1) % 6);
+        public void CycleMode() => Mode = (ViewMode)(((int)_mode + 1) % 7);
 
         public void Init(WorldState w, Renderer quad)
         {
@@ -103,6 +103,7 @@ namespace EcoSim.View
                 case ViewMode.Pred:  return Ramp(w.Pred[i], 220, 50, 50);
                 case ViewMode.Soil:  return Ramp(w.Soil[i], 140, 90, 50);
                 case ViewMode.Water: return Ramp(w.Water[i], 40, 90, 200);
+                case ViewMode.Elevation: return Elevation(w.Elevation[i]);
                 default:             return Combined(w, i);
             }
         }
@@ -111,6 +112,16 @@ namespace EcoSim.View
         {
             t = t < 0f ? 0f : (t > 1f ? 1f : t);
             return new Color32((byte)(r * t), (byte)(g * t), (byte)(b * t), 255);
+        }
+
+        // 지형: 저지대=짙은 청록(물길), 고지대=밝은 갈회색.
+        private static Color32 Elevation(float e)
+        {
+            e = e < 0f ? 0f : (e > 1f ? 1f : e);
+            byte r = (byte)Mathf.Lerp(30, 200, e);
+            byte g = (byte)Mathf.Lerp(70, 190, e);
+            byte b = (byte)Mathf.Lerp(90, 170, e);
+            return new Color32(r, g, b, 255);
         }
 
         private static Color32 Combined(WorldState w, int i)
